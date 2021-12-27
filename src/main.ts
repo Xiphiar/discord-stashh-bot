@@ -2,11 +2,11 @@ import "reflect-metadata";
 import { Intents, Interaction, Message, MessageEmbed } from "discord.js";
 import { Client } from "discordx";
 import { dirname, importx } from "@discordx/importer";
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 // @ts-ignore
 import storage from 'node-persist';
 import { CosmWasmClient } from 'secretjs';
-dotenv.config()
+dotenv.config();
 
 // @ts-ignore
 const queryJs = new CosmWasmClient(process.env.REST_URL);
@@ -77,6 +77,7 @@ async function intervalFunc(channel: any) {
       console.log(listingInfo.listing_info.sale_item.already_minted_nft.token_id, listingInfo.listing_info.price, listingInfo.listing_info.price / 10e5, listingInfo.listing_info.purchase_token.contract_address);
       
       //if listing was for sSCRT and over the alert price
+      // @ts-ignore
       if (listingInfo.listing_info.purchase_token.contract_address.includes("secret1k0jntykt7e4g3y88ltc60czgjuqdy4c9e8fzek") && (parseInt(listingInfo.listing_info.price) > parseInt(process.env.ALERT_PRICE)) ) {
         const punkID = listingInfo.listing_info.sale_item.already_minted_nft.token_id;
         const price = listingInfo.listing_info.price / 10e5;
