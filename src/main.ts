@@ -3,10 +3,12 @@ import { Intents, Interaction, Message, MessageEmbed } from "discord.js";
 import { Client } from "discordx";
 import { dirname, importx } from "@discordx/importer";
 import dotenv from 'dotenv';
+// @ts-ignore
 import storage from 'node-persist';
 import { CosmWasmClient } from 'secretjs';
 dotenv.config()
 
+// @ts-ignore
 const queryJs = new CosmWasmClient(process.env.REST_URL);
 
 const query = {
@@ -56,10 +58,11 @@ function getColor(id: string): string{
   }
 }
 
-async function intervalFunc(channel) {
+async function intervalFunc(channel: any) {
   const lastKnownHeight = parseInt(await storage.getItem('lastKnownHeight') || 0);
   console.log("checking for sales from height ", lastKnownHeight)
 
+  // @ts-ignore
   const saleInfo = await queryJs.queryContractSmart(process.env.STASHH_ADDRESS, query)
   if (!lastKnownHeight || lastKnownHeight==0) {
     console.log("No persistent data, will not announce old sales. New height: ", saleInfo.collection_purchases.history[0].block_height)
@@ -79,6 +82,7 @@ async function intervalFunc(channel) {
         const price = listingInfo.listing_info.price / 10e5;
 
         const punkEmbed = new MessageEmbed()
+          // @ts-ignore
           .setColor(getColor(punkID))
           .setTitle("Secret Punks on Stashh")
           .setURL(`https://stashh.io/asset/secret19syw637nl4rws0t9j5ku208wy8s2tvwqvyyhvu/${punkID}`)
@@ -144,13 +148,16 @@ client.once("ready", async () => {
   await storage.init( /* options ... */ );
 
   //get channel to send announcements in
+  // @ts-ignore
   const guild = client.guilds.cache.get(process.env.SERVER_ID);
+  // @ts-ignore
   const channel = guild.channels.cache.get(process.env.CHANNEL_ID);
 
   //run at bot start
   intervalFunc(channel)
 
   //setup loop
+  // @ts-ignore
   setInterval(function() {intervalFunc(channel)}, process.env.INTERVAL);
 
 });
