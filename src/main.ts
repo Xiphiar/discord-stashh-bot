@@ -70,7 +70,7 @@ const exampleEmbed = new MessageEmbed()
 	.setTimestamp()
 	.setFooter('Some footer text here', 'https://i.imgur.com/AfFp7pu.png');
 
-function getColor(id: string): string{
+function getColor(id: string): string | boolean{
   if (aliens.includes(parseInt(id))){
     return '#c8fbfb'
   } 
@@ -81,13 +81,14 @@ function getColor(id: string): string{
     return '#7da269'
   }
   else {
-    return '#949494'
+    return false
   }
 }
 
 async function intervalFunc(channel: any) {
   //load last known sale height from persistent storage, will only announce sales after this height
   const lastKnownHeight = parseInt(await storage.getItem('lastKnownHeight') || 0);
+  let newHeight: Number = lastKnownHeight;
   console.log("checking for sales from height ", lastKnownHeight)
 
   // @ts-ignore
@@ -100,6 +101,11 @@ async function intervalFunc(channel: any) {
 
   for (const sale of saleInfo.collection_purchases.history) {
     if (sale.block_height > lastKnownHeight){
+      if (sale.block_height > newHeight){
+        //update known block time with highest block
+        newHeight = sale.block_height;
+      }
+      
       const listingInfo = await queryJs.queryContractSmart(sale.listing_address, query2);
       console.log(listingInfo.listing_info.sale_item.already_minted_nft.token_id, listingInfo.listing_info.price, listingInfo.listing_info.price / 10e5, listingInfo.listing_info.purchase_token.contract_address);
       
@@ -108,10 +114,8 @@ async function intervalFunc(channel: any) {
       if (listingInfo.listing_info.purchase_token.contract_address.includes("secret1k0jntykt7e4g3y88ltc60czgjuqdy4c9e8fzek") && (parseInt(listingInfo.listing_info.price) > parseInt(process.env.ALERT_PRICE)) ) {
         const punkID = listingInfo.listing_info.sale_item.already_minted_nft.token_id;
         const price = listingInfo.listing_info.price / 10e5;
-
-        const punkEmbed = new MessageEmbed()
-          // @ts-ignore
-          .setColor(getColor(punkID))
+        const msgColor: string | boolean = getColor(punkID)
+        let punkEmbed = new MessageEmbed()
           .setTitle("Secret Punks on Stashh")
           .setURL(`https://stashh.io/asset/secret19syw637nl4rws0t9j5ku208wy8s2tvwqvyyhvu/${punkID}`)
           .setImage(listingInfo.listing_info.sale_item.already_minted_nft.nft_info.public_metadata.extension.image)
@@ -122,6 +126,12 @@ async function intervalFunc(channel: any) {
             //{ name: 'New Owner', value: `Unknown` },
           )
           .setTimestamp()
+
+        if (msgColor){
+          // @ts-ignore
+          punkEmbed.setColor(msgColor)
+        }
+
         channel.send({ embeds: [punkEmbed] })
 
         //download image for twitter
@@ -136,9 +146,13 @@ async function intervalFunc(channel: any) {
     }
   }
 
-  //save height of the latest sale to persistent storage
-  await storage.setItem('lastKnownHeight',saleInfo.collection_purchases.history[0].block_height)
-  console.log("Done, new height: ", saleInfo.collection_purchases.history[0].block_height)
+  if (newHeight > lastKnownHeight) {
+    //save height of the latest sale to persistent storage
+    await storage.setItem('lastKnownHeight', newHeight)
+    console.log("Done, new height: ", newHeight)
+  } else {
+    console.log("Found no new sales after: ", lastKnownHeight)
+  }
 }
 
 
