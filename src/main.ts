@@ -46,6 +46,7 @@ if (process.env.TWITTER_APP_KEY) {
   });
 }
 
+if (!process.env.REST_URL) throw new Error('Please set REST_URL env variable.')
 const queryJs = new CosmWasmClient(process.env.REST_URL);
 
 const query = {
