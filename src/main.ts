@@ -11,18 +11,41 @@ import Axios from 'axios';
 import fs from 'fs';
 dotenv.config();
 
-//const twitterClient = new TwitterApi('AAAAAAAAAAAAAAAAAAAAAJDWXQEAAAAA99xRi%2FrRT9gSBoCtx%2FgTN47dM8I%3D58mitqWWZBm6WxApRrDyI3X6F9ImLMJlkRkopcnpfmuKISIb05');
+const tokenInfo = [
+  {
+    address: 'secret1k0jntykt7e4g3y88ltc60czgjuqdy4c9e8fzek',
+    symbol: "sSCRT",
+    cashtag: "$SCRT",
+    minimum: 99999999,  //uSCRT
+    divisor: 10e5
+  },
+  {
+    address: 'secret18wpjn83dayu4meu6wnn29khfkwdxs7kyrz9c8f',
+    symbol: "sUSDT",
+    cashtag: "$USDT",
+    minimum: 99999999,  //uUSDT
+    divisor: 10e5
+  },
+  {
+    address: 'secret1wuzzjsdhthpvuyeeyhfq2ftsn3mvwf9rxy6ykw',
+    symbol: "sETH",
+    cashtag: "$ETH",
+    minimum: 49999999999999999,  //gwei (?) 0.049999999999999999
+    divisor: 10e17
+  }
+]
 
-console.log(process.env.TWITTER_APP_KEY, process.env.TWITTER_APP_SECRET, process.env.TWITTER_ACCESS_KEY, process.env.TWITTER_ACCESS_SECRET)
-const twitterClient = new TwitterApi({
-  // @ts-ignore
-  appKey: process.env.TWITTER_APP_KEY,
-  appSecret: process.env.TWITTER_APP_SECRET,
-  accessToken: process.env.TWITTER_ACCESS_KEY,
-  accessSecret: process.env.TWITTER_ACCESS_SECRET,
-});
+let twitterClient: TwitterApi;
+if (process.env.TWITTER_APP_KEY) {
+  twitterClient = new TwitterApi({
+    // @ts-ignore
+    appKey: process.env.TWITTER_APP_KEY,
+    appSecret: process.env.TWITTER_APP_SECRET,
+    accessToken: process.env.TWITTER_ACCESS_KEY,
+    accessSecret: process.env.TWITTER_ACCESS_SECRET,
+  });
+}
 
-// @ts-ignore
 const queryJs = new CosmWasmClient(process.env.REST_URL);
 
 const query = {
@@ -86,78 +109,95 @@ function getColor(id: string): string | boolean{
 }
 
 async function intervalFunc(channel: any) {
-  //load last known sale height from persistent storage, will only announce sales after this height
-  const lastKnownHeight = parseInt(await storage.getItem('lastKnownHeight') || 0);
-  let newHeight: Number = lastKnownHeight;
-  console.log("checking for sales from height ", lastKnownHeight)
+  try {
+    //load last known sale height from persistent storage, will only announce sales after this height
+    const lastKnownHeight = parseInt(await storage.getItem('lastKnownHeight') || 0);
+    let newHeight: Number = lastKnownHeight;
+    console.log("checking for sales from height ", lastKnownHeight)
 
-  // @ts-ignore
-  const saleInfo = await queryJs.queryContractSmart(process.env.STASHH_ADDRESS, query)
-  if (!lastKnownHeight || lastKnownHeight==0) {
-    console.log("No persistent data, will not announce old sales. New height: ", saleInfo.collection_purchases.history[0].block_height)
-    await storage.setItem('lastKnownHeight',saleInfo.collection_purchases.history[0].block_height)
-    return;
-  }
+    // @ts-ignore
+    const saleInfo = await queryJs.queryContractSmart(process.env.STASHH_ADDRESS, query)
+    if (!lastKnownHeight || lastKnownHeight==0) {
+      console.log("No persistent data, will not announce old sales. New height: ", saleInfo.collection_purchases.history[0].block_height)
+      await storage.setItem('lastKnownHeight',saleInfo.collection_purchases.history[0].block_height)
+      return;
+    }
 
-  for (const sale of saleInfo.collection_purchases.history) {
-    if (sale.block_height > lastKnownHeight){
-      if (sale.block_height > newHeight){
-        //update known block time with highest block
-        newHeight = sale.block_height;
-      }
-      
-      const listingInfo = await queryJs.queryContractSmart(sale.listing_address, query2);
-      console.log(listingInfo.listing_info.sale_item.already_minted_nft.token_id, listingInfo.listing_info.price, listingInfo.listing_info.price / 10e5, listingInfo.listing_info.purchase_token.contract_address);
-      
-      //if listing was for sSCRT and over the alert price
-      // @ts-ignore
-      if (listingInfo.listing_info.purchase_token.contract_address.includes("secret1k0jntykt7e4g3y88ltc60czgjuqdy4c9e8fzek") && (parseInt(listingInfo.listing_info.price) > parseInt(process.env.ALERT_PRICE)) ) {
-        const punkID = listingInfo.listing_info.sale_item.already_minted_nft.token_id;
-        const price = listingInfo.listing_info.price / 10e5;
-        const msgColor: string | boolean = getColor(punkID)
-        let punkEmbed = new MessageEmbed()
-          .setTitle("Secret Punks on Stashh")
-          .setURL(`https://stashh.io/asset/secret19syw637nl4rws0t9j5ku208wy8s2tvwqvyyhvu/${punkID}`)
-          .setImage(listingInfo.listing_info.sale_item.already_minted_nft.nft_info.public_metadata.extension.image)
-          .setDescription(`Punk ${punkID} was sold on Stashh`)
-          //.setThumbnail(listingInfo.listing_info.sale_item.already_minted_nft.nft_info.public_metadata.extension.image)
-          .addFields(
-            { name: 'Price', value: `${price} sSCRT` },
-            //{ name: 'New Owner', value: `Unknown` },
-          )
-          .setTimestamp()
+    for (const sale of saleInfo.collection_purchases.history) {
+      if (sale.block_height > lastKnownHeight){
+        if (sale.block_height > newHeight){
+          //update known block time with highest block
+          newHeight = sale.block_height;
+        }
+        
+        const listingInfo = await queryJs.queryContractSmart(sale.listing_address, query2);
+        console.log(listingInfo.listing_info.sale_item.already_minted_nft.token_id, listingInfo.listing_info.price, listingInfo.listing_info.price / 10e5, listingInfo.listing_info.purchase_token.contract_address);
+        
+        //if listing was for whitelisted token and over the alert price
+        const purchaseToken: string = listingInfo.listing_info.purchase_token.contract_address;
+        const purchasePrice = listingInfo.listing_info.price;
+        const tInfo = tokenInfo.find(token => token.address === purchaseToken);
+        if (!tInfo) continue;
 
-        if (msgColor){
-          // @ts-ignore
-          punkEmbed.setColor(msgColor)
+        // @ts-ignore
+        if (parseInt(purchasePrice) > tInfo.minimum) {
+          try {
+            const punkID = listingInfo.listing_info.sale_item.already_minted_nft.token_id;
+            const price = listingInfo.listing_info.price / tInfo.divisor;
+
+            const msgColor: string | boolean = getColor(punkID)
+            let punkEmbed = new MessageEmbed()
+              .setTitle("Secret Punks on Stashh")
+              .setURL(`https://stashh.io/asset/secret19syw637nl4rws0t9j5ku208wy8s2tvwqvyyhvu/${punkID}`)
+              .setImage(listingInfo.listing_info.sale_item.already_minted_nft.nft_info.public_metadata.extension.image)
+              .setDescription(`Punk ${punkID} was sold on Stashh`)
+              //.setThumbnail(listingInfo.listing_info.sale_item.already_minted_nft.nft_info.public_metadata.extension.image)
+              .addFields(
+                { name: 'Price', value: `${price} ${tInfo.symbol}` },
+                //{ name: 'New Owner', value: `Unknown` },
+              )
+              .setTimestamp()
+
+            if (msgColor){
+              // @ts-ignore
+              punkEmbed.setColor(msgColor)
+            }
+
+            channel.send({ embeds: [punkEmbed] })
+
+            if (twitterClient ) {
+
+              //download image for twitter
+              await downloadImage(listingInfo.listing_info.sale_item.already_minted_nft.nft_info.public_metadata.extension.image, "file2.png")
+
+              //create and send tweet
+              const mediaId = await twitterClient.v1.uploadMedia('./file2.png');
+              const twitMsg = `Secret Punk ${punkID} just sold for ${price} ${tInfo.cashtag} on @StashhApp! #SecretPunks  https://stashh.io/asset/secret19syw637nl4rws0t9j5ku208wy8s2tvwqvyyhvu/${punkID}`
+              await twitterClient.v1.tweet(twitMsg,{ media_ids: mediaId });
+            }
+          } catch(error) {
+            console.error(error);
+          }
+
         }
 
-        channel.send({ embeds: [punkEmbed] })
-
-        //download image for twitter
-        await downloadImage(listingInfo.listing_info.sale_item.already_minted_nft.nft_info.public_metadata.extension.image, "file2.png")
-
-        //create and send tweet
-        const mediaId = await twitterClient.v1.uploadMedia('./file2.png');
-        const twitMsg = `Secret Punk ${punkID} just sold for ${price} $SCRT on @StashhApp! #SecretPunks  https://stashh.io/asset/secret19syw637nl4rws0t9j5ku208wy8s2tvwqvyyhvu/${punkID}`
-        await twitterClient.v1.tweet(twitMsg,{ media_ids: mediaId });
       }
-
     }
-  }
 
-  if (newHeight > lastKnownHeight) {
-    //save height of the latest sale to persistent storage
-    await storage.setItem('lastKnownHeight', newHeight)
-    console.log("Done, new height: ", newHeight)
-  } else {
-    console.log("Found no new sales after: ", lastKnownHeight)
+    if (newHeight > lastKnownHeight) {
+      //save height of the latest sale to persistent storage
+      await storage.setItem('lastKnownHeight', newHeight)
+      console.log("Done, new height: ", newHeight)
+    } else {
+      console.log("Found no new sales after: ", lastKnownHeight)
+    }
+  } catch(error) {
+    console.error(error);
   }
 }
 
 
 const client = new Client({
-  
   simpleCommand: {
     prefix: "!",
   },
@@ -185,8 +225,9 @@ client.once("ready", async () => {
     global: { log: true },
   });
 
-  // init permissions; enabled log to see changes
-  await client.initApplicationPermissions(true);
+  // It stopped working but bot works without it 🤷
+  // // init permissions; enabled log to see changes
+  // await client.initApplicationPermissions(true);
 
   // uncomment this line to clear all guild commands,
   // useful when moving to global commands from guild commands
