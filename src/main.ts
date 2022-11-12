@@ -1,7 +1,6 @@
 import "reflect-metadata";
-import { Intents, Interaction, Message, MessageEmbed } from "discord.js";
+import { Intents, MessageEmbed } from "discord.js";
 import { Client } from "discordx";
-import { dirname, importx } from "@discordx/importer";
 import * as dotenv from 'dotenv';
 // @ts-ignore
 import storage from 'node-persist';
@@ -9,34 +8,65 @@ import { CosmWasmClient } from 'secretjs';
 import { TwitterApi } from 'twitter-api-v2';
 import Axios from 'axios';
 import fs from 'fs';
+import { Sale, CollectionPurchasesQueryResponse } from "./interfaces";
+import { cleanEnv, str, url, bool, num } from 'envalid';
 dotenv.config();
 
-const tokenInfo = [
+// It breaks if i try to move this shit anywhere else so this bot gets to be a mess. Fucking typescript.
+export const stashhFactories = [
+  'secret170vzvknyh94v3cglk5mze8czeanua78vctdqre',
+  'secret13tclu253d7thzalmalvlxa8tlydrww06ugdd8p',
+]
+
+export const tokenInfo = [
   {
-    address: 'secret1k0jntykt7e4g3y88ltc60czgjuqdy4c9e8fzek',
-    symbol: "sSCRT",
-    cashtag: "$SCRT",
-    minimum: 99999999,  //uSCRT
-    divisor: 10e5
+      address: 'secret1k0jntykt7e4g3y88ltc60czgjuqdy4c9e8fzek',
+      symbol: "sSCRT",
+      cashtag: "$SCRT",
+      minimum: 99999999,  //uSCRT
+      divisor: 10e5
   },
   {
-    address: 'secret18wpjn83dayu4meu6wnn29khfkwdxs7kyrz9c8f',
-    symbol: "sUSDT",
-    cashtag: "$USDT",
-    minimum: 99999999,  //uUSDT
-    divisor: 10e5
+      address: 'secret18wpjn83dayu4meu6wnn29khfkwdxs7kyrz9c8f',
+      symbol: "sUSDT",
+      cashtag: "$USDT",
+      minimum: 99999999,  //uUSDT
+      divisor: 10e5
   },
   {
-    address: 'secret1wuzzjsdhthpvuyeeyhfq2ftsn3mvwf9rxy6ykw',
-    symbol: "sETH",
-    cashtag: "$ETH",
-    minimum: 49999999999999999,  //gwei (?) 0.049999999999999999
-    divisor: 10e17
+      address: 'secret1wuzzjsdhthpvuyeeyhfq2ftsn3mvwf9rxy6ykw',
+      symbol: "sETH",
+      cashtag: "$ETH",
+      minimum: 49999999999999999,  //gwei (?) 0.049999999999999999
+      divisor: 10e17
   }
 ]
 
+cleanEnv(process.env, {
+  // NODE_ENV: str(),
+  REST_URL: url(),
+  INTERVAL: num(),
+  DISCORD_ENABLED: str(),
+  TWITTER_ENABLED: str(),
+});
+
+if (process.env.DISCORD_ENABLED)
+  cleanEnv(process.env, {
+      DISCORD_BOT_TOKEN: str(),
+      DISCORD_SERVER_ID: str(),
+      DISCORD_CHANNEL_ID: str(),
+  });
+
+if (process.env.TWITTER_ENABLED)
+  cleanEnv(process.env, {
+      TWITTER_APP_KEY: str(),
+      TWITTER_APP_SECRET: str(),
+      TWITTER_ACCESS_KEY: str(),
+      TWITTER_ACCESS_SECRET: str(),
+  });
+
 let twitterClient: TwitterApi;
-if (process.env.TWITTER_APP_KEY) {
+if (process.env.TWITTER_ENABLED === 'true') {
   twitterClient = new TwitterApi({
     // @ts-ignore
     appKey: process.env.TWITTER_APP_KEY,
@@ -113,59 +143,64 @@ async function intervalFunc(channel: any) {
   try {
     //load last known sale height from persistent storage, will only announce sales after this height
     const lastKnownHeight = parseInt(await storage.getItem('lastKnownHeight') || 0);
-    let newHeight: Number = lastKnownHeight;
     console.log("checking for sales from height ", lastKnownHeight)
 
-    // @ts-ignore
-    const saleInfo = await queryJs.queryContractSmart(process.env.STASHH_ADDRESS, query)
+    const sales: Sale[] = [];
+    for (let i=0; i < stashhFactories.length; i++){
+      const saleInfo: CollectionPurchasesQueryResponse = await queryJs.queryContractSmart(stashhFactories[i], query);
+      sales.push(...saleInfo.collection_purchases.history);
+    }
+
+    const newHeight: number = Math.max(...sales.map(o => o.block_height));
     if (!lastKnownHeight || lastKnownHeight==0) {
-      console.log("No persistent data, will not announce old sales. New height: ", saleInfo.collection_purchases.history[0].block_height)
-      await storage.setItem('lastKnownHeight',saleInfo.collection_purchases.history[0].block_height)
+      console.log("No persistent data, will not announce old sales. New height: ", newHeight)
+      await storage.setItem('lastKnownHeight', newHeight)
       return;
     }
 
-    for (const sale of saleInfo.collection_purchases.history) {
+    for (const sale of sales) {
       if (sale.block_height > lastKnownHeight){
-        if (sale.block_height > newHeight){
-          //update known block time with highest block
-          newHeight = sale.block_height;
-        }
-        
         const listingInfo = await queryJs.queryContractSmart(sale.listing_address, query2);
         console.log(listingInfo.listing_info.sale_item.already_minted_nft.token_id, listingInfo.listing_info.price, listingInfo.listing_info.price / 10e5, listingInfo.listing_info.purchase_token.contract_address);
         
-        //if listing was for whitelisted token and over the alert price
+        // Get sale token info
         const purchaseToken: string = listingInfo.listing_info.purchase_token.contract_address;
-        const purchasePrice = listingInfo.listing_info.price;
         const tInfo = tokenInfo.find(token => token.address === purchaseToken);
+
+        // Skip if the token it sold for isn't in our token list.
         if (!tInfo) continue;
 
-        // @ts-ignore
+        // Alert if over the minimum sale amount defined in the token list
+        const purchasePrice = listingInfo.listing_info.price;
         if (parseInt(purchasePrice) > tInfo.minimum) {
           try {
             const punkID = listingInfo.listing_info.sale_item.already_minted_nft.token_id;
             const price = listingInfo.listing_info.price / tInfo.divisor;
 
-            const msgColor: string | boolean = getColor(punkID)
-            let punkEmbed = new MessageEmbed()
-              .setTitle("Secret Punks on Stashh")
-              .setURL(`https://stashh.io/asset/secret19syw637nl4rws0t9j5ku208wy8s2tvwqvyyhvu/${punkID}`)
-              .setImage(listingInfo.listing_info.sale_item.already_minted_nft.nft_info.public_metadata.extension.image)
-              .setDescription(`Punk ${punkID} was sold on Stashh`)
-              //.setThumbnail(listingInfo.listing_info.sale_item.already_minted_nft.nft_info.public_metadata.extension.image)
-              .addFields(
-                { name: 'Price', value: `${price} ${tInfo.symbol}` },
-                //{ name: 'New Owner', value: `Unknown` },
-              )
-              .setTimestamp()
+            // Send message to discord
+            if (process.env.DISCORD_ENABLED === 'true') {
+              const msgColor: string | boolean = getColor(punkID)
+              let punkEmbed = new MessageEmbed()
+                .setTitle("Secret Punks on Stashh")
+                .setURL(`https://stashh.io/asset/secret19syw637nl4rws0t9j5ku208wy8s2tvwqvyyhvu/${punkID}`)
+                .setImage(listingInfo.listing_info.sale_item.already_minted_nft.nft_info.public_metadata.extension.image)
+                .setDescription(`Punk ${punkID} was sold on Stashh`)
+                //.setThumbnail(listingInfo.listing_info.sale_item.already_minted_nft.nft_info.public_metadata.extension.image)
+                .addFields(
+                  { name: 'Price', value: `${price} ${tInfo.symbol}` },
+                  //{ name: 'New Owner', value: `Unknown` },
+                )
+                .setTimestamp()
 
-            if (msgColor){
-              // @ts-ignore
-              punkEmbed.setColor(msgColor)
+              if (msgColor){
+                // @ts-ignore
+                punkEmbed.setColor(msgColor)
+              }
+
+              channel.send({ embeds: [punkEmbed] })
             }
 
-            channel.send({ embeds: [punkEmbed] })
-
+            // Post on twitter
             if (twitterClient ) {
 
               //download image for twitter
@@ -242,9 +277,9 @@ client.once("ready", async () => {
 
   //get channel to send announcements in
   // @ts-ignore
-  const guild = client.guilds.cache.get(process.env.SERVER_ID);
+  const guild = client.guilds.cache.get(process.env.DISCORD_SERVER_ID);
   // @ts-ignore
-  const channel = guild.channels.cache.get(process.env.CHANNEL_ID);
+  const channel = guild.channels.cache.get(process.env.DISCORD_CHANNEL_ID);
 
   //run at bot start
   intervalFunc(channel)
@@ -260,7 +295,7 @@ async function run() {
   // await importx(__dirname + "/{events,commands}/**/*.{ts,js}");
   // with ems
   //await importx(dirname(import.meta.url) + "/{events,commands}/**/*.{ts,js}");
-  client.login(process.env.BOT_TOKEN ?? ""); // provide your bot token
+  client.login(process.env.DISCORD_BOT_TOKEN ?? ""); // provide your bot token
 }
 
 run();

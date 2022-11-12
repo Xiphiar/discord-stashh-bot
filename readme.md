@@ -43,7 +43,7 @@
 - `cd discord.ts-example`
 - `npm install`
 - `npm run build`
-- `set BOT_TOKEN=<your bot token>`
+- `set DISCORD_BOT_TOKEN=<your bot token>`
 
   if you don't have token yet than create one at [discord developer portal](https://discord.com/developers/)
 
@@ -104,7 +104,7 @@ async function run() {
   await importx(__dirname + "/{events,commands}/**/*.{ts,js}");
   // with ems
   // await importx(dirname(import.meta.url) + "/{events,commands}/**/*.{ts,js}");
-  client.login(process.env.BOT_TOKEN ?? ""); // provide your bot token
+  client.login(process.env.DISCORD_BOT_TOKEN ?? ""); // provide your bot token
 }
 ```
 

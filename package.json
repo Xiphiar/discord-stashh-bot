@@ -38,6 +38,7 @@
     "discord.js": "^13.4.0",
     "discordx": "9.9.0",
     "dotenv": "^10.0.0",
+    "envalid": "^7.3.1",
     "node-persist": "^3.1.0",
     "reflect-metadata": "^0.1.13",
     "secretjs": "^0.17.8",
