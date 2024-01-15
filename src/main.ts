@@ -209,14 +209,16 @@ async function intervalFunc(channel: any) {
               //create and send tweet
               const mediaId = await twitterClient.v1.uploadMedia('./file2.png');
               const twitMsg = `Secret Punk ${punkID} just sold for ${price} ${tInfo.cashtag} on @StashhApp! #SecretPunks  https://stashh.io/asset/secret19syw637nl4rws0t9j5ku208wy8s2tvwqvyyhvu/${punkID}`
-              await twitterClient.v1.tweet(twitMsg,{ media_ids: mediaId });
+              await twitterClient.v2.tweet(twitMsg,{
+                media: {
+                  media_ids: [mediaId]
+                },
+              });
             }
           } catch(error) {
             console.error(error);
           }
-
         }
-
       }
     }
 
