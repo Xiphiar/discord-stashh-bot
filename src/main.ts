@@ -197,7 +197,7 @@ async function intervalFunc(channel: any) {
                 punkEmbed.setColor(msgColor)
               }
 
-              channel.send({ embeds: [punkEmbed] })
+              await channel.send({ embeds: [punkEmbed] })
             }
 
             // Post on twitter
@@ -282,6 +282,7 @@ client.once("ready", async () => {
   const guild = client.guilds.cache.get(process.env.DISCORD_SERVER_ID);
   // @ts-ignore
   const channel = guild.channels.cache.get(process.env.DISCORD_CHANNEL_ID);
+  if (!channel) throw `Unable to get channel with channel ID ${process.env.DISCORD_CHANNEL_ID}`
 
   //run at bot start
   intervalFunc(channel)
